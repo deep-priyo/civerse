@@ -1,5 +1,4 @@
 ---
-
 title: CIVERSE
 emoji: 💻
 colorFrom: purple
@@ -10,60 +9,86 @@ pinned: false
 tags: [openenv, rl, code-review, bug-detection, agent-eval]
 ---
 
-# 💻 CIVERSE — Code Review RL Environment
+# CIVERSE — a reinforcement-learning environment for evaluating AI code reviewers
 
-### 🚀 Evaluating AI Agents on Real-World Code Review Tasks
+Most benchmarks ask a model to **write** code. CIVERSE asks whether a model can **read** code and
+find what is wrong with it.
 
-[![OpenEnv](https://img.shields.io/badge/Powered_by-OpenEnv-brightgreen?style=for-the-badge)](#)
-[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge\&logo=python)](#)
-
----
-
-## 🧠 Overview
-
-**CIVERSE** is an OpenEnv-compatible reinforcement learning environment designed to evaluate how effectively AI agents perform **code review tasks**.
-
-Instead of generating code, agents must:
-
-* 🐞 Detect bugs
-* 🏷️ Classify issues
-* 🛠️ Suggest fixes
-
-This transforms code review into a **structured RL problem**, enabling benchmarking of reasoning, precision, and correctness.
+It is an [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible environment. Each episode hands
+the agent a snippet containing bugs the agent cannot see, and scores it step by step on three separate
+skills: whether it **finds** the bug, whether it **understands** what kind of bug it is, and whether
+its **fix** is aimed at the right place. Any OpenEnv-compatible agent can be evaluated against it
+without modification.
 
 ---
 
-## ⚡ Core Idea
+## Why code review rather than code generation
 
-> This is NOT a bug detector.
-> It is a **benchmark for evaluating AI code reviewers**.
+Generation benchmarks reward a model for producing something plausible. Review benchmarks punish it
+for accepting something plausible. That difference matters: in practice, the expensive failure mode
+of an AI coding assistant is not that it writes nothing, it is that it writes something that looks
+correct and is not — and that a reviewer waves through.
 
-Each episode presents a code snippet with hidden ground-truth bugs.
-The agent interacts step-by-step and is scored based on accuracy and reasoning.
+Separating detection from classification from repair also makes the failure legible. A model that
+scores well on detection and badly on classification is pattern-matching on "this line looks
+suspicious" without understanding the defect. That distinction is invisible in a single pass/fail
+number, and it is the main thing this environment is built to expose.
 
 ---
 
-## 🎮 Action Space
+## Quick start
 
-Although internally abstracted, actions map directly to code review tasks:
+### Run the environment server
 
-| Action   | Interpretation        |
-| -------- | --------------------- |
-| `work`   | Detect a bug          |
-| `focus`  | Classify the bug      |
-| `switch` | Move to another issue |
-| `break`  | No operation          |
-| `delay`  | Skip step             |
+```bash
+docker build -t civerse .
+docker run -p 7860:7860 civerse
+```
 
-### Example Action
+Or locally, without Docker:
 
-```json
-{"type": "work", "task_id": "m1"}
+```bash
+pip install uv && uv pip install --system -r backend/requirements.txt
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+```
+
+The server exposes the standard OpenEnv HTTP contract on port `7860`:
+
+| Endpoint  | Method | Purpose                                        |
+| --------- | ------ | ---------------------------------------------- |
+| `/health` | GET    | Liveness check                                  |
+| `/reset`  | POST   | Start a new episode, returns the first observation |
+| `/step`   | POST   | Submit one action, returns `(observation, reward, done, state)` |
+| `/state`  | GET    | Full environment state, including what the agent has found so far |
+| `/grader` | POST   | Run the deterministic grader for a difficulty level |
+
+### Evaluate a model
+
+`inference.py` drives any OpenAI-compatible endpoint against the environment.
+
+```bash
+export HF_TOKEN=...                                  # or API_KEY
+export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"        # default
+export API_BASE_URL="https://router.huggingface.co/v1"
+python inference.py
+```
+
+It prints one line per step and a summary at the end:
+
+```
+[START] task=code-review env=code-review-env model=Qwen/Qwen2.5-72B-Instruct
+[STEP]  step=1 action=detect reward=0.30 done=false error=null
+[STEP]  step=2 action=classify reward=-0.10 done=false error=null
+[END]   success=true steps=9 score=0.750 rewards=0.30,-0.10,...
 ```
 
 ---
 
-## 👁️ Observation Space
+## How an episode works
+
+The agent sees only the code. The bug list is held by the environment and never sent to the agent.
+
+**Observation**
 
 ```json
 {
@@ -73,136 +98,159 @@ Although internally abstracted, actions map directly to code review tasks:
 }
 ```
 
-### What the agent sees:
+**Actions** — four types, each carrying an optional payload:
 
-* **code** → snippet to analyze
-* **task_id** → scenario identifier
-* **step** → current timestep
+| Action     | Payload                                                  | What it claims                               |
+| ---------- | -------------------------------------------------------- | -------------------------------------------- |
+| `detect`   | `line_number`                                             | "There is a bug on this line."               |
+| `classify` | `line_number`, `bug_type`, `severity`, `description`      | "It is this kind of bug."                    |
+| `fix`      | `line_number`, `fix`                                      | "This is how to repair it."                  |
+| `skip`     | —                                                         | "I am done." Ends the episode immediately.   |
 
----
-
-## 🧪 Task Levels
-
-| Level     | Focus                              | Complexity              |
-| --------- | ---------------------------------- | ----------------------- |
-| 🟢 Easy   | Single bug detection               | Basic logic             |
-| 🟡 Medium | Multiple bugs + classification     | Edge cases              |
-| 🔴 Hard   | Detection + classification + fixes | Security + logic        |
-| ⚫ Expert  | Multi-step reasoning               | Complex vulnerabilities |
-
----
-
-## 🏆 Scoring System
-
-```text
-score = detection_accuracy × 0.33
-      + classification_accuracy × 0.33
-      + fix_quality × 0.34
+```json
+{"type": "classify", "payload": {"line_number": 6, "bug_type": "security", "severity": "critical"}}
 ```
 
-### Metrics:
-
-* **Detection Accuracy** → Did the agent find real bugs?
-* **Classification Accuracy** → Did it label them correctly?
-* **Fix Quality** → Are the fixes valid and meaningful?
+Episodes run to a maximum of **15 steps**, or until the agent emits `skip`.
 
 ---
 
-## ⚙️ How It Works
+## Scoring
+
+There are two layers, and they measure different things.
+
+### Per-step reward — shapes behaviour during the episode
+
+| Event                                                             | Reward |
+| ----------------------------------------------------------------- | ------ |
+| `detect` on a real, not-yet-detected bug                          | **+0.30** |
+| `classify` with the correct line **and** the correct `bug_type`    | **+0.30** |
+| `fix` on a real, not-yet-fixed bug                                | **+0.40** |
+| Any action on a wrong line, or repeating one already credited      | **−0.10** |
+
+Repair is weighted highest because it is the only action that requires the model to have understood
+the defect rather than merely located it. The −0.10 penalty exists to make guessing unprofitable: an
+agent that fires `detect` at every line scores worse than one that reads.
+
+### Episode grade — the deterministic score
+
+At the end of an episode the grader computes:
 
 ```
-reset() → Observation → Agent → Action → step() → Reward → repeat
+score = 0.5 × (bugs detected / total bugs) + 0.5 × (bugs fixed / total bugs)
 ```
 
-* Environment provides code
-* Agent responds with structured action
-* System evaluates correctness
-* Score is computed at episode end
+clamped to `[0.01, 0.99]`. An episode counts as a **success at ≥ 0.50**.
+
+> **Known inconsistency, not yet resolved:** the per-step reward scores three components, but the
+> episode grade scores only two — classification accuracy is recorded in state and used for step
+> reward, but does not enter the final number. `openenv.yaml` still advertises the three-way split
+> (0.33 / 0.33 / 0.34). These should agree. See *Limitations* below.
 
 ---
 
-## 🏗️ Project Structure
+## Difficulty levels
 
-```
-code-review-env/
-├── models.py              # Core environment logic
-├── inference.py           # LLM-based agent
-├── openenv.yaml           # OpenEnv specification
-├── Dockerfile             # Deployment config
-├── backend/
-│   └── main.py            # FastAPI server
-├── server/
-│   └── app.py             # Uvicorn entrypoint
-├── grader/
-│   └── code_review_graders.py
-```
+| Level      | Bugs  | Focus                                     | Baseline |
+| ---------- | ----- | ----------------------------------------- | -------- |
+| `easy`     | 1     | Simple logic error                        | 0.80     |
+| `medium`   | 2–3   | Logic plus unhandled edge cases           | 0.50     |
+| `hard`     | 3–5   | Security, logic and performance together  | 0.30     |
+| `expert`   | 3–5   | Complex, interacting defects              | 0.20     |
 
----
+Baselines descend deliberately. A benchmark where a strong model scores 0.9 everywhere tells you
+nothing; the interesting signal is where the curve breaks.
 
-## 🚀 Running the Project
+**`easy` — one wrong operator.** Reward comes almost entirely from noticing.
 
-### 1️⃣ Install dependencies
-
-```bash
-pip install -r requirements.txt
+```python
+def add(a, b):
+    return a - b
 ```
 
----
+**`medium` — two absent guards.** Nothing is syntactically wrong; the bugs are the missing cases.
 
-### 2️⃣ Start server
+```python
+def divide(a, b):
+    return a / b
 
-```bash
-uvicorn server.app:app --port 7860 --reload
+def get_element(arr, idx):
+    return arr[idx]
 ```
 
----
+**`hard` — three defects of different kinds in eight lines.** This is the level that separates
+models, because it requires holding three categories of concern at once: a critical SQL injection, a
+leaked connection, and absent error handling.
 
-### 3️⃣ Run agent
+```python
+import sqlite3
 
-```bash
-export HF_TOKEN="your_token"
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-
-python inference.py
+def query(user_id):
+    conn = sqlite3.connect('db.sqlite')
+    c = conn.cursor()
+    c.execute(f'SELECT * FROM users WHERE id={user_id}')
+    res = c.fetchall()
+    return res
 ```
 
----
-
-## 📊 Reward Design
-
-| Event                  | Reward |
-| ---------------------- | ------ |
-| Correct detection      | +0.30  |
-| Correct classification | +0.30  |
-| Correct fix            | +0.40  |
-| Incorrect action       | −0.10  |
-| Skip                   | 0.00   |
+Most models find the injection. Far fewer classify the unclosed connection as a *resource* problem
+rather than a style one, and fewer still flag the missing error handling at all.
 
 ---
 
-## 🔧 Environment Variables
+## Project layout
 
-| Variable       | Description      |
-| -------------- | ---------------- |
-| `API_BASE_URL` | LLM endpoint     |
-| `MODEL_NAME`   | Model identifier |
-| `HF_TOKEN`     | API key          |
+```
+models.py                      # Task/Bug/Action/Observation schemas, environment, step reward
+grader/code_review_graders.py  # Deterministic graders per difficulty + reference agent
+backend/main.py                # OpenEnv Environment wrapper and FastAPI app
+server/app.py                  # Uvicorn entrypoint (server.app:app)
+inference.py                   # Evaluation harness for any OpenAI-compatible model
+openenv.yaml                   # Environment spec: actions, tasks, scoring, constraints
+Dockerfile                     # Python 3.11-slim, serves on 7860
+```
+
+Everything is typed with Pydantic, so a malformed action from a model is rejected at the boundary
+rather than producing a confusing downstream failure — which matters when the thing under test is an
+LLM emitting JSON.
+
+`grader/` also contains `_heuristic_action`, an oracle agent that walks the known bugs in order. It
+exists to verify the environment itself: if the oracle does not score near the ceiling, the
+environment is broken, not the model.
+
+---
+
+## Limitations
+
+Stated plainly, because a benchmark whose weaknesses are undocumented is not a benchmark.
+
+1. **The task set is small and hand-written.** Four scenarios, one per difficulty. Enough to
+   demonstrate the contract, not enough to rank models with confidence.
+2. **Classification is missing from the episode grade.** See the note under *Scoring*. The fix is
+   small — extend `_evaluate_state` to a three-term weighted sum matching the step rewards — and it
+   should be done before any published comparison.
+3. **Fix quality is positional, not semantic.** A `fix` action is credited for targeting the right
+   line; the proposed patch text is stored but not verified. Proper scoring needs either test
+   execution against the patched snippet or a semantic comparison to the reference fix.
+4. **`deterministic_grader()` on the environment returns a constant.** It is a stub satisfying the
+   interface, not a real implementation.
+5. **No published baselines yet.** Scores for known models should be recorded so results are
+   comparable across runs.
+6. **Single-snippet episodes.** Real review happens across files and diffs, with context the agent
+   must go find.
 
 ---
 
-## 💡 Why This Matters
+## Roadmap
 
-CIVERSE enables:
-
-* 🧠 Evaluation of reasoning-heavy AI tasks
-* 🔍 Benchmarking LLM code understanding
-* ⚙️ Testing multi-step decision making
-
----
-
-## 🏁 Final Note
-
-This project demonstrates how **real-world developer workflows** can be converted into **reinforcement learning environments** — opening new directions for evaluating intelligent systems.
+- Three-component episode grade, consistent with the step rewards
+- Semantic fix verification by running tests against the patched snippet
+- A larger task set mined from real commits with labelled defects
+- Published baseline scores for several frontier models
+- Multi-file and diff-level review tasks
 
 ---
+
+## Built with
+
+Python 3.11 · FastAPI · Uvicorn · Pydantic · OpenEnv · Docker · Hugging Face Spaces · uv

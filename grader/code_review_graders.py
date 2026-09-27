@@ -53,11 +53,23 @@ def _evaluate_state(state_dict: dict) -> float:
     found = sum(1 for b in known_bugs if b.get('line') in detected_lines)
     recall = found / total_bugs
 
+    # Classification only counts when the agent named the right defect on the right
+    # line, matching the per-step reward in CodeReviewEnvironment.step(). Locating a
+    # bug without understanding what kind it is earns detection credit, not this.
+    classified_pairs = {(c.get("line_number"), c.get("bug_type")) for c in classified}
+    classified_correct = sum(
+        1 for b in known_bugs if (b.get('line'), b.get('type')) in classified_pairs
+    )
+    classify_recall = classified_correct / total_bugs
+
     fixed_lines = {f.get("line_number") for f in fixed}
     fixed_correct = sum(1 for b in known_bugs if b.get('line') in fixed_lines)
     fix_recall = fixed_correct / total_bugs
 
-    score = (0.5 * recall) + (0.5 * fix_recall)
+    # Weights mirror openenv.yaml scoring.components and the 0.30/0.30/0.40 split of
+    # the per-step rewards: repair is worth marginally more than locating or naming,
+    # because it is the only action that requires having understood the defect.
+    score = (0.33 * recall) + (0.33 * classify_recall) + (0.34 * fix_recall)
     return max(_MIN, min(_MAX, score))
 
 

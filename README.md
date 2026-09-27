@@ -134,18 +134,21 @@ agent that fires `detect` at every line scores worse than one that reads.
 
 ### Episode grade — the deterministic score
 
-At the end of an episode the grader computes:
+At the end of an episode the grader computes recall against the ground-truth bug list, on the same
+three components the step rewards use:
 
 ```
-score = 0.5 × (bugs detected / total bugs) + 0.5 × (bugs fixed / total bugs)
+score = 0.33 × (bugs detected  / total bugs)
+      + 0.33 × (bugs correctly classified / total bugs)
+      + 0.34 × (bugs fixed     / total bugs)
 ```
 
 clamped to `[0.01, 0.99]`. An episode counts as a **success at ≥ 0.50**.
 
-> **Known inconsistency, not yet resolved:** the per-step reward scores three components, but the
-> episode grade scores only two — classification accuracy is recorded in state and used for step
-> reward, but does not enter the final number. `openenv.yaml` still advertises the three-way split
-> (0.33 / 0.33 / 0.34). These should agree. See *Limitations* below.
+Classification recall requires the agent to have named the right defect *on the right line* — a
+`classify` action with the correct `line_number` but the wrong `bug_type` earns detection credit and
+nothing more. That is deliberate: it is the term that separates an agent which understands a defect
+from one that has merely noticed the line looks unusual.
 
 ---
 
@@ -226,24 +229,21 @@ Stated plainly, because a benchmark whose weaknesses are undocumented is not a b
 
 1. **The task set is small and hand-written.** Four scenarios, one per difficulty. Enough to
    demonstrate the contract, not enough to rank models with confidence.
-2. **Classification is missing from the episode grade.** See the note under *Scoring*. The fix is
-   small — extend `_evaluate_state` to a three-term weighted sum matching the step rewards — and it
-   should be done before any published comparison.
-3. **Fix quality is positional, not semantic.** A `fix` action is credited for targeting the right
+2. **Fix quality is positional, not semantic.** A `fix` action is credited for targeting the right
    line; the proposed patch text is stored but not verified. Proper scoring needs either test
-   execution against the patched snippet or a semantic comparison to the reference fix.
-4. **`deterministic_grader()` on the environment returns a constant.** It is a stub satisfying the
+   execution against the patched snippet or a semantic comparison to the reference fix. This is the
+   weakest term in the score and the next one to address.
+3. **`deterministic_grader()` on the environment returns a constant.** It is a stub satisfying the
    interface, not a real implementation.
-5. **No published baselines yet.** Scores for known models should be recorded so results are
+4. **No published baselines yet.** Scores for known models should be recorded so results are
    comparable across runs.
-6. **Single-snippet episodes.** Real review happens across files and diffs, with context the agent
+5. **Single-snippet episodes.** Real review happens across files and diffs, with context the agent
    must go find.
 
 ---
 
 ## Roadmap
 
-- Three-component episode grade, consistent with the step rewards
 - Semantic fix verification by running tests against the patched snippet
 - A larger task set mined from real commits with labelled defects
 - Published baseline scores for several frontier models

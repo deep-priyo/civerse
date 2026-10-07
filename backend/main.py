@@ -91,7 +91,9 @@ class CREnvWrapper(Environment):
             from grader.code_review_graders import _evaluate_state
             self._final_score = _safe(_evaluate_state(info))
             info["final_score"] = self._final_score
-        return self._to_oe_obs(obs, done=done, reward=_safe(float(reward)), info=info)
+        # Step rewards are passed through unclamped: the [0.01, 0.99] range applies to
+        # the episode grade only. Clamping here turned the -0.10 penalty into +0.01.
+        return self._to_oe_obs(obs, done=done, reward=float(reward), info=info)
 
     @property
     def state(self):

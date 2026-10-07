@@ -34,28 +34,28 @@ observation_space:
 tasks:
   - id: easy
     difficulty: easy
-    description: 1 bug (e.g., syntax or simple logic)
+    description: 1 bug (simple logic error)
     max_steps: 15
     grader: "grader.code_review_graders:EasyGrader"
     baseline_score: 0.8
 
   - id: medium
     difficulty: medium
-    description: 2-3 bugs (logic + edge cases)
+    description: 2 bugs (unhandled edge cases)
     max_steps: 15
     grader: "grader.code_review_graders:MediumGrader"
     baseline_score: 0.5
 
   - id: hard
     difficulty: hard
-    description: 3-5 bugs (security + logic + performance)
+    description: 3 bugs (security + resource leak + error handling)
     max_steps: 15
     grader: "grader.code_review_graders:HardGrader"
     baseline_score: 0.3
 
   - id: expert
     difficulty: expert
-    description: 3-5 complex bugs
+    description: 1 labelled bug (eval on user input)
     max_steps: 15
     grader: "grader.code_review_graders:ExpertGrader"
     baseline_score: 0.2

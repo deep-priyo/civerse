@@ -94,11 +94,11 @@ def query(user_id):
     res = c.fetchall()
     return res
 
-{"type": "detect", "payload": {"line_number": 6}}                         reward=+0.30 done=False
-{"type": "classify", "payload": {"line_number": 6, "bug_type": "security", ...}}  reward=+0.30 done=False
-{"type": "fix", "payload": {"line_number": 6, "fix": "c.execute(...)"}}  reward=+0.40 done=False
-{"type": "detect", "payload": {"line_number": 1}}                         reward=-0.10 done=False
-{"type": "skip"}                                                          reward=+0.00 done=True
+detect    {"line_number": 6}                                             reward=+0.30 done=False
+classify  {"line_number": 6, "bug_type": "security", "severity": "crit   reward=+0.30 done=False
+fix       {"line_number": 6, "fix": "c.execute('SELECT * FROM users WH   reward=+0.40 done=False
+detect    {"line_number": 1}                                             reward=-0.10 done=False
+skip      {}                                                             reward=+0.00 done=True
 
 episode grade: 0.33 (fail at 0.50)
 ```

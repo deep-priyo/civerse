@@ -5,18 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "code-review-env"
 version = "0.1.0"
-description = "Code review enviroment"
+description = "OpenEnv-compatible RL environment that benchmarks how well AI agents review code"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
     "uvicorn",
-    "pydantic",
-    "openai",
-    "requests",
+    "pydantic>=2",
+    "openenv-core>=0.2.3,<0.4",
+    "openai>=1.0",
     "python-dotenv",
-    "openenv-core>=0.2.0"
 ]
 
 [project.scripts]
 server = "server.app:main"
+
+# Flat layout with several top-level packages: list them explicitly, since
+# setuptools refuses to auto-discover in that case.
+[tool.setuptools]
+packages = ["backend", "grader", "server"]
+py-modules = ["models", "inference"]

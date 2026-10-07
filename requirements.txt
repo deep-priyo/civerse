@@ -1,7 +1,7 @@
+# Mirrors [project.dependencies] in pyproject.toml. Used by the Dockerfile.
 fastapi
 uvicorn
-pydantic
-openai
-requests
+pydantic>=2
+openenv-core>=0.2.3,<0.4
+openai>=1.0
 python-dotenv
-openenv-core>=0.2.0
